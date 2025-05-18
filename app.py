@@ -13,9 +13,11 @@ pinecone_api_key = os.getenv("PINECONE_API_KEY")
 pinecone_env = os.getenv("PINECONE_ENV")
 pinecone_index_name = os.getenv("PINECONE_INDEX")
 
-# Init Pinecone
-pinecone.init(api_key=pinecone_api_key, environment=pinecone_env)
-index = pinecone.Index(pinecone_index_name)
+from pinecone import Pinecone
+
+pc = Pinecone(api_key=pinecone_api_key)
+index = pc.Index(pinecone_index_name)
+
 
 # FastAPI setup
 app = FastAPI()
