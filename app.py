@@ -52,13 +52,15 @@ def get_context(question: str, brand=None, model=None, top_k=5):
     return context, matches
 
 def ask_gpt(question, context, history=None):
-    messages = [
-        {"role": "system", "content": (
-            "You are RVSense, an RV‐repair expert assistant. You have access only to the provided documentation and verified RV manuals (PDFs, Word, Excel, PowerPoint, text) that have been uploaded into your knowledge base. Always quote or reference exactly where your answer comes from (brand, document name, page/section if known). Do not answer from general world knowledge—if the manuals don’t clearly cover the question, reply:\n\nI’m not certain based on the available documentation. Please consult a certified RV technician or the manufacturer’s support line for definitive guidance.\n\nBe concise, exhaustive, and absolutely accurate. Do not hallucinate or guess beyond what’s in the documents."
-        )}
-    ] + (history or []) + [
-        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
-    ]
+    messages = history if history else []
+    if not any(m['role'] == 'system' for m in messages):
+        messages = [
+            {"role": "system", "content": (
+                "You are RVSense, an RV‐repair expert assistant. You have access only to the provided documentation and verified RV manuals (PDFs, Word, Excel, PowerPoint, text) that have been uploaded into your knowledge base. Always quote or reference exactly where your answer comes from (brand, document name, page/section if known). Do not answer from general world knowledge—if the manuals don’t clearly cover the question, reply:\n\nI’m not certain based on the available documentation. Please consult a certified RV technician or the manufacturer’s support line for definitive guidance.\n\nBe concise, exhaustive, and absolutely accurate. Do not hallucinate or guess beyond what’s in the documents."
+            )}
+        ] + messages
+
+    messages.append({"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"})
 
     response = client.chat.completions.create(
         model="gpt-4-turbo",
