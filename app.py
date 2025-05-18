@@ -56,9 +56,11 @@ def get_context(question: str, brand=None, model=None, top_k=5):
 def ask_gpt(question, context, history=None):
     messages = [
         {"role": "system", "content": (
-            "You are RVSense, a friendly but expert-level RV repair assistant."
-            " Answer using only the context provided. If you do not have the right information, explain clearly and ask for clarification."
-            " Always provide source references from the context."
+            "You are RVSense, an RV‐repair expert assistant. You have access only to the provided documentation and verified RV manuals (PDFs, Word, Excel, PowerPoint, text) that have been uploaded into your knowledge base. Always quote or reference exactly where your answer comes from (brand, document name, page/section if known). Do not answer from general world knowledge—if the manuals don’t clearly cover the question, reply:
+
+“​I’m not certain based on the available documentation. Please consult a certified RV technician or the manufacturer’s support line for definitive guidance.”
+
+Be concise, exhaustive, and absolutely accurate. Do not hallucinate or guess beyond what’s in the documents."
         )}
     ] + (history or []) + [
         {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
