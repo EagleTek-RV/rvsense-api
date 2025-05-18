@@ -1,5 +1,3 @@
-# app.py (Flask API for RVSense on Render)
-
 import os
 import json
 from flask import Flask, request, jsonify
@@ -8,24 +6,19 @@ from pinecone import Pinecone
 from dotenv import load_dotenv
 from hashlib import sha256
 
-# Load environment variables
 load_dotenv()
 
-# API Keys & Configs
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_ENV = os.getenv("PINECONE_ENV")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX")
 
-# Clients
 client = OpenAI(api_key=OPENAI_API_KEY)
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(PINECONE_INDEX_NAME)
 
-# Flask app
 app = Flask(__name__)
 
-# In-memory session cache
 session_store = {}
 qa_cache = {}
 
@@ -49,7 +42,7 @@ def get_context(question: str, brand=None, model=None, top_k=5):
         filter=filter_ if filter_ else None
     )
 
-    matches = results.get("matches", [])
+    matches = results.matches
     context = "\n\n---\n\n".join([
         f"[{m['metadata'].get('brand', 'Generic')} Manual, pages {m['metadata'].get('page_range', '?')}]: {m['metadata'].get('text', '')}"
         for m in matches if m['score'] > 0.6
@@ -98,7 +91,6 @@ def chat():
     if qhash in qa_cache:
         return jsonify({"response": qa_cache[qhash]})
 
-    # If Free tier user, apply limited filter
     brand_filter = brand if is_pro else "Generic"
 
     context, matches = get_context(question, brand=brand_filter, model=model)
