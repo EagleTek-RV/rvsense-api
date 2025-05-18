@@ -5,6 +5,8 @@ from openai import OpenAI
 from pinecone import Pinecone
 from dotenv import load_dotenv
 from hashlib import sha256
+from flask_cors import CORS
+
 
 load_dotenv()
 
@@ -18,6 +20,8 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(PINECONE_INDEX_NAME)
 
 app = Flask(__name__)
+CORS(app)
+
 
 session_store = {}
 qa_cache = {}
