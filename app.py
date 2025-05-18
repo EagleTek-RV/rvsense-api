@@ -23,6 +23,7 @@ CORS(app)
 
 session_store = {}
 qa_cache = {}
+MAX_TURNS = 6
 
 def hash_question(q):
     return sha256(q.lower().strip().encode()).hexdigest()
@@ -60,7 +61,8 @@ def ask_gpt(question, context, history=None):
             )}
         ] + messages
 
-    messages.append({"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"})
+    messages.append({"role": "system", "content": f"Reference materials:\n{context}"})
+    messages.append({"role": "user", "content": question})
 
     response = client.chat.completions.create(
         model="gpt-4-turbo",
@@ -88,6 +90,9 @@ def chat():
     is_pro = data.get("is_pro", False)
 
     session = session_store.get(user_id, [])
+    if len(session) > MAX_TURNS * 2:
+        session = session[-MAX_TURNS * 2:]
+
     qhash = hash_question(question + (brand or '') + (model or ''))
 
     if qhash in qa_cache:
