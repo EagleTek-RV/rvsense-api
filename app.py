@@ -1,119 +1,90 @@
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import openai
+import pinecone
 import os
-import json
-from flask import Flask, request, jsonify
-from openai import OpenAI
-from pinecone import Pinecone
 from dotenv import load_dotenv
-from hashlib import sha256
-from flask_cors import CORS
 
+# Load env vars
 load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
+pinecone_api_key = os.getenv("PINECONE_API_KEY")
+pinecone_env = os.getenv("PINECONE_ENV")
+pinecone_index_name = os.getenv("PINECONE_INDEX")
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_ENV = os.getenv("PINECONE_ENV")
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX")
+# Init Pinecone
+pinecone.init(api_key=pinecone_api_key, environment=pinecone_env)
+index = pinecone.Index(pinecone_index_name)
 
-client = OpenAI(api_key=OPENAI_API_KEY)
-pc = Pinecone(api_key=PINECONE_API_KEY)
-index = pc.Index(PINECONE_INDEX_NAME)
+# FastAPI setup
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # tighten for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-app = Flask(__name__)
-CORS(app)
+# Input schema
+class ChatPayload(BaseModel):
+    session_id: str
+    messages: list
+    is_pro: bool = False
 
-session_store = {}
-qa_cache = {}
-MAX_TURNS = 6
+# Helper: Query Pinecone
+def query_pinecone(query_text, is_pro):
+    vector = openai.Embedding.create(
+        input=query_text,
+        model="text-embedding-3-small"
+    )["data"][0]["embedding"]
 
-def hash_question(q):
-    return sha256(q.lower().strip().encode()).hexdigest()
-
-def get_context(question: str, brand=None, model=None, top_k=5):
-    embed = client.embeddings.create(input=question, model="text-embedding-3-small")
-    vector = embed.data[0].embedding
-
-    filter_ = {}
-    if brand:
-        filter_["brand"] = {"$eq": brand}
-    if model:
-        filter_["model"] = {"$eq": model}
+    filters = {"access": {"$eq": "free"}} if not is_pro else {}
 
     results = index.query(
         vector=vector,
-        top_k=top_k,
+        top_k=5,
         include_metadata=True,
-        filter=filter_ if filter_ else None
+        filter=filters
     )
 
-    matches = results.matches
-    context = "\n\n---\n\n".join([
-        f"[{m['metadata'].get('brand', 'Generic')} Manual, pages {m['metadata'].get('page_range', '?')}]: {m['metadata'].get('text', '')}"
-        for m in matches if m['score'] > 0.6
-    ])
-    return context, matches
+    contexts = [match["metadata"]["text"] for match in results["matches"]]
+    return "\n---\n".join(contexts)
 
-def ask_gpt(question, context, history=None):
-    messages = history if history else []
-    if not any(m['role'] == 'system' for m in messages):
-        messages = [
-            {"role": "system", "content": (
-                "You are RVSense, an RV‐repair expert assistant. You have access only to the provided documentation and verified RV manuals (PDFs, Word, Excel, PowerPoint, text) that have been uploaded into your knowledge base. Always quote or reference exactly where your answer comes from (brand, document name, page/section if known). Do not answer from general world knowledge—if the manuals don’t clearly cover the question, reply:\n\nI’m not certain based on the available documentation. Please consult a certified RV technician or the manufacturer’s support line for definitive guidance.\n\nBe concise, exhaustive, and absolutely accurate. Do not hallucinate or guess beyond what’s in the documents."
-            )}
-        ] + messages
+# Route: Chat endpoint
+@app.post("/chat")
+async def chat_handler(payload: ChatPayload):
+    user_messages = payload.messages
+    session_id = payload.session_id
+    is_pro = payload.is_pro
 
-    messages.append({"role": "system", "content": f"Reference materials:\n{context}"})
-    messages.append({"role": "user", "content": question})
+    latest_question = user_messages[-1]["content"]
 
-    response = client.chat.completions.create(
-        model="gpt-4-turbo",
-        messages=messages
+    # Get context from Pinecone
+    context = query_pinecone(latest_question, is_pro)
+
+    system_prompt = (
+        "You are RVSense, a world-class RV assistant. "
+        "Answer ONLY based on the provided documentation. "
+        "If you don't have enough information, say 'This answer may require RVSense Pro.'"
     )
-    return response.choices[0].message.content.strip()
 
-def get_clarifying_question(question):
-    response = client.chat.completions.create(
-        model="gpt-4-turbo",
-        messages=[
-            {"role": "system", "content": "The user asked a vague RV tech question. Ask a helpful clarifying follow-up."},
-            {"role": "user", "content": question}
-        ]
-    )
-    return response.choices[0].message.content.strip()
+    gpt_messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": f"Context:\n{context}"}
+    ] + user_messages[-5:]  # include last 5 messages for continuity
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    data = request.get_json()
-    question = data.get("message", "")
-    user_id = data.get("user_id", "anon")
-    brand = data.get("brand")
-    model = data.get("model")
-    is_pro = data.get("is_pro", False)
+    # Query OpenAI
+    try:
+        completion = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=gpt_messages,
+            temperature=0.2,
+            max_tokens=800
+        )
+        assistant_reply = completion.choices[0].message["content"]
+    except Exception as e:
+        return {"reply": f"OpenAI error: {str(e)}"}
 
-    session = session_store.get(user_id, [])
-    if len(session) > MAX_TURNS * 2:
-        session = session[-MAX_TURNS * 2:]
-
-    qhash = hash_question(question + (brand or '') + (model or ''))
-
-    if qhash in qa_cache:
-        return jsonify({"response": qa_cache[qhash]})
-
-    brand_filter = brand if is_pro else "Generic"
-
-    context, matches = get_context(question, brand=brand_filter, model=model)
-
-    if not matches or len(context.strip()) < 50:
-        clarifier = get_clarifying_question(question)
-        session_store[user_id] = session + [{"role": "assistant", "content": clarifier}]
-        return jsonify({"response": clarifier})
-
-    answer = ask_gpt(question, context, history=session)
-    session_store[user_id] = session + [
-        {"role": "user", "content": question},
-        {"role": "assistant", "content": answer}
-    ]
-    qa_cache[qhash] = answer
-    return jsonify({"response": answer})
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    return {"reply": assistant_reply}
