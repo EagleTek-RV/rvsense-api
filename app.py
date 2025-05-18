@@ -1,92 +1,78 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import openai
-import pinecone
-import os
+from openai import OpenAI
+from pinecone import Pinecone
 from dotenv import load_dotenv
+import os
 
 # Load env vars
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-pinecone_api_key = os.getenv("PINECONE_API_KEY")
-pinecone_env = os.getenv("PINECONE_ENV")
-pinecone_index_name = os.getenv("PINECONE_INDEX")
 
-from pinecone import Pinecone
-
-pc = Pinecone(api_key=pinecone_api_key)
-index = pc.Index(pinecone_index_name)
-
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+pinecone_index = pinecone_client.Index(os.getenv("PINECONE_INDEX"))
 
 # FastAPI setup
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten for production
+    allow_origins=["*"],  # tighten in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Input schema
+# Payload model
 class ChatPayload(BaseModel):
     session_id: str
     messages: list
     is_pro: bool = False
 
-# Helper: Query Pinecone
 def query_pinecone(query_text, is_pro):
-    vector = openai.Embedding.create(
+    # Embed input
+    embedding = openai_client.embeddings.create(
         input=query_text,
         model="text-embedding-3-small"
-    )["data"][0]["embedding"]
+    ).data[0].embedding
 
-    filters = {"access": {"$eq": "free"}} if not is_pro else {}
-
-    results = index.query(
-        vector=vector,
+    filter = {} if is_pro else {"access": {"$eq": "free"}}
+    results = pinecone_index.query(
+        vector=embedding,
         top_k=5,
         include_metadata=True,
-        filter=filters
+        filter=filter
     )
+    chunks = [match['metadata']['text'] for match in results.matches]
+    return "\n---\n".join(chunks)
 
-    contexts = [match["metadata"]["text"] for match in results["matches"]]
-    return "\n---\n".join(contexts)
-
-# Route: Chat endpoint
 @app.post("/chat")
-async def chat_handler(payload: ChatPayload):
-    user_messages = payload.messages
-    session_id = payload.session_id
-    is_pro = payload.is_pro
+def chat_route(payload: ChatPayload):
+    history = payload.messages[-5:]  # optional trimming
+    query = history[-1]["content"]
 
-    latest_question = user_messages[-1]["content"]
-
-    # Get context from Pinecone
-    context = query_pinecone(latest_question, is_pro)
+    context = query_pinecone(query, payload.is_pro)
 
     system_prompt = (
-        "You are RVSense, a world-class RV assistant. "
-        "Answer ONLY based on the provided documentation. "
-        "If you don't have enough information, say 'This answer may require RVSense Pro.'"
+        "You are RVSense, a smart RV tech assistant. Only answer using the provided context. "
+        "If you cannot confidently answer, respond: 'This answer may require RVSense Pro.'"
     )
 
-    gpt_messages = [
+    messages = [
         {"role": "system", "content": system_prompt},
         {"role": "system", "content": f"Context:\n{context}"}
-    ] + user_messages[-5:]  # include last 5 messages for continuity
+    ] + history
 
-    # Query OpenAI
     try:
-        completion = openai.ChatCompletion.create(
+        response = openai_client.chat.completions.create(
             model="gpt-4",
-            messages=gpt_messages,
-            temperature=0.2,
+            messages=messages,
+            temperature=0.3,
             max_tokens=800
         )
-        assistant_reply = completion.choices[0].message["content"]
+        reply = response.choices[0].message.content
     except Exception as e:
-        return {"reply": f"OpenAI error: {str(e)}"}
+        reply = f"OpenAI error: {e}"
 
-    return {"reply": assistant_reply}
+    return {"reply": reply}
