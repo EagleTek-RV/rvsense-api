@@ -1,0 +1,4 @@
+Flask
+openai
+pinecone-client
+python-dotenv
