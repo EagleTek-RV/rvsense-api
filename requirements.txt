@@ -1,8 +1,6 @@
-Flask
-openai
-pinecone
-python-dotenv
-Flask-cors
 fastapi
 uvicorn
-pydantic
+openai
+pinecone-client
+python-dotenv
+langchain

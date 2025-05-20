@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: rvsense-langchain-api
+    name: rvsense-api
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
