@@ -5,3 +5,5 @@ pinecone-client
 python-dotenv
 langchain
 langchain-community
+pinecone
+
