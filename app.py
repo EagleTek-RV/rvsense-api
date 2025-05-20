@@ -20,6 +20,10 @@ class ChatInput(BaseModel):
     message: str
     is_pro: Optional[bool] = False
 
+@app.post("/debug")
+async def debug_echo(request: Request):
+    return await request.json()
+
 @app.get("/")
 def health_check():
     return {"status": "ok"}
