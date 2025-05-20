@@ -1,15 +1,21 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 
-from rvsense_agent import run_rvsense  # Your LangChain logic here
+from rvsense_agent import run_rvsense
 
-app = FastAPI()
+app = FastAPI(
+    title="RVSense API",
+    version="1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Lock down in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -20,14 +26,16 @@ class ChatInput(BaseModel):
     message: str
     is_pro: Optional[bool] = False
 
-@app.post("/debug")
-async def debug_echo(request: Request):
-    return await request.json()
-
 @app.get("/")
-def health_check():
-    return {"status": "ok"}
+def health():
+    return {"status": "rvsense-api is running"}
 
 @app.post("/rvsense")
 async def chat_handler(payload: ChatInput):
-    return {"reply": run_rvsense(payload.message, payload.session_id, payload.is_pro)}
+    return {
+        "reply": run_rvsense(
+            query=payload.message,
+            session_id=payload.session_id,
+            is_pro=payload.is_pro
+        )
+    }
