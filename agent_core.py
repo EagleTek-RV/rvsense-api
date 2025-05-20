@@ -1,7 +1,7 @@
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
-from langchain.vectorstores import Pinecone as PineconeVectorStore
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import Pinecone as PineconeVectorStore
+from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.memory import ConversationBufferMemory
 from langchain.agents import Tool, initialize_agent, AgentType
 import os
