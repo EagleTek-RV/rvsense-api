@@ -19,7 +19,7 @@ app.add_middleware(
 class ChatInput(BaseModel):
     session_id: str
     message: str
-    is_pro: Optional[bool] = False
+    is_pro: Optional[bool] = False  # must be included
 
 @app.get("/")
 def health_check():
